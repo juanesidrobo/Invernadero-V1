@@ -22,14 +22,14 @@
  **********************************************************************************/
  
 /* Fill-in your Template ID (only if using Blynk.Cloud) */
-#define BLYNK_TEMPLATE_ID "TMPL20WBeDil7"
-#define BLYNK_TEMPLATE_NAME "Proyecto invernadero"
-#define BLYNK_AUTH_TOKEN "JQcpJ0dkUSjm10MgCZTFs7AloRYXZ9MJ"
+#define BLYNK_TEMPLATE_ID "TMPL2kZFf1t2H"
+#define BLYNK_TEMPLATE_NAME "Proyecto Invernadero"
+#define BLYNK_AUTH_TOKEN "m7NJX83z8NnSkCRT-Q6DAcwVhpxgGpvn"
 
 // Your WiFi credentials.
 // Set password to "" for open networks. CAMBIAR 
-char ssid[] = "SISE"; //WiFi Name
-char pass[] = "Fulvineitor23"; //WiFi Password
+char ssid[] = "Yuliana"; //WiFi Name
+char pass[] = "1002777683"; //WiFi Password
 
 //Set the maximum wet and maximum dry value measured by the sensor
 int wetSoilVal = 1860 ;  //min value when soil is wet
@@ -44,6 +44,7 @@ int moistPerHigh =   80 ;  //max moisture %
 #include <WiFiClient.h>
 #include <BlynkSimpleEsp32.h>
 #include <DHT.h>  
+#include <ESP32Servo.h>
 #include <AceButton.h>
 using namespace ace_button; 
 
@@ -57,6 +58,12 @@ using namespace ace_button;
 const int BuzzerPin = 26;
 //#define BuzzerPin       26  //D26
 #define ModeLed         15  //D15
+//#define LightSensorPin 27    // Sensor de luz (analógico)
+#define LedPin          4    // LED indicador
+#define ServoPin        5    // Servomotor
+#define FanPin         18    // Ventilador
+#define SERVO_MIN_US 500  // Ajuste para tu servo
+#define SERVO_MAX_US 2500 // Ajuste para tu servo
 
 // Uncomment whatever type you're using!
 #define DHTTYPE DHT11     // DHT 11
@@ -76,8 +83,8 @@ const int BuzzerPin = 26;
 // Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
 #define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
-
-
+const int LightSensorPin = 27;
+Servo myServo;
 int     sensorVal;
 int     moisturePercentage;
 bool    toggleRelay = LOW; //Define to remember the toggle state
@@ -85,6 +92,8 @@ bool    prevMode = true;
 int     temperature1 = 0;
 int     humidity1   = 0;
 String  currMode  = "A";
+int lightValue = 0;
+const int lightThreshold = 1500; 
 
 char auth[] = BLYNK_AUTH_TOKEN;
 
@@ -206,6 +215,7 @@ void sendSensor()
   Blynk.virtualWrite(VPIN_MoistPer, moisturePercentage);
   Blynk.virtualWrite(VPIN_TEMPERATURE, temperature1);
   Blynk.virtualWrite(VPIN_HUMIDITY, humidity1);
+
 }
 
 void controlMoist(){
@@ -235,6 +245,26 @@ void controlMoist(){
     button1.check();
   }
 }
+
+void controlLightAndHumidity() {
+  // Leer sensor de luz
+  lightValue = digitalRead(LightSensorPin);
+  
+  // Controlar LED basado en luz ambiental
+  digitalWrite(LedPin, lightValue ? HIGH : LOW);
+  Serial.print("Luz: "); Serial.println(lightValue); // Dentro de controlLightAndHumidity
+
+  // Controlar servo y ventilador basado en humedad del DHT11
+  if (humidity1 < 73) {  // humidity1 ya existe en el código
+    myServo.write(90);   // Ángulo deseado (ej: 90°)
+    digitalWrite(FanPin, HIGH);
+  } else {
+    myServo.write(0);    // Posición inicial
+    digitalWrite(FanPin, LOW);
+  }
+  Serial.print("%, Servo: ");
+  Serial.println((humidity1 < 50) ? "90°" : "0°");
+}
  
 void setup() {
   // Set up serial monitor
@@ -245,9 +275,15 @@ void setup() {
   pinMode(wifiLed, OUTPUT);
   pinMode(ModeLed, OUTPUT);
   pinMode(BuzzerPin, OUTPUT);
+  pinMode(LightSensorPin, INPUT);
 
   pinMode(RelayButtonPin, INPUT_PULLUP);
   pinMode(ModeSwitchPin, INPUT_PULLUP);
+
+  pinMode(LedPin, OUTPUT);
+  pinMode(FanPin, OUTPUT);
+  myServo.attach(ServoPin, SERVO_MIN_US, SERVO_MAX_US);
+  myServo.write(0);  // Posición inicial
 
   digitalWrite(wifiLed, LOW);
   digitalWrite(ModeLed, LOW);
@@ -285,6 +321,7 @@ void setup() {
   
   button2.check();
   controlMoist(); 
+  controlLightAndHumidity();
 }
 
 void button1Handler(AceButton* button, uint8_t eventType, uint8_t buttonState) {
@@ -317,3 +354,4 @@ void button2Handler(AceButton* button, uint8_t eventType, uint8_t buttonState) {
       break;
   }
 }
+
