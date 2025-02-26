@@ -22,9 +22,9 @@
  **********************************************************************************/
  
 /* Fill-in your Template ID (only if using Blynk.Cloud) */
-#define BLYNK_TEMPLATE_ID "TMPL2XJizL1IO"
-#define BLYNK_TEMPLATE_NAME "Invernadero"
-#define BLYNK_AUTH_TOKEN "QP97AmGLbxrAF3SBii7BtkpBIvjffXuR"
+#define BLYNK_TEMPLATE_ID "TMPL2kZFf1t2H"
+#define BLYNK_TEMPLATE_NAME "Proyecto Invernadero"
+#define BLYNK_AUTH_TOKEN "m7NJX83z8NnSkCRT-Q6DAcwVhpxgGpvn"
 
 // Your WiFi credentials.
 // Set password to "" for open networks. CAMBIAR 
@@ -44,9 +44,10 @@ int moistPerHigh =   80 ;  //max moisture %
 #include <WiFiClient.h>
 #include <BlynkSimpleEsp32.h>
 #include <DHT.h>  
+#include <ESP32Servo.h>
 #include <AceButton.h>
 using namespace ace_button; 
-
+Servo servo;
 // Define connections to sensor
 #define SensorPin       34  //D34
 #define DHTPin          14  //D14
@@ -57,6 +58,13 @@ using namespace ace_button;
 const int BuzzerPin = 26;
 //#define BuzzerPin       26  //D26
 #define ModeLed         15  //D15
+//#define LightSensorPin 27    // Sensor de luz (analógico)
+#define LedPin          4    // LED indicador
+#define LedPin2         13   // LED indicador 2
+//#define ServoPin        5    // Servomotor
+#define FanPin         18    // Ventilador
+#define SERVO_MIN_US 500  // Ajuste para tu servo
+#define SERVO_MAX_US 2500 // Ajuste para tu servo
 
 // Uncomment whatever type you're using!
 #define DHTTYPE DHT11     // DHT 11
@@ -76,8 +84,8 @@ const int BuzzerPin = 26;
 // Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
 #define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
-
-
+const int LightSensorPin = 27;
+//Servo myServo;
 int     sensorVal;
 int     moisturePercentage;
 bool    toggleRelay = LOW; //Define to remember the toggle state
@@ -85,6 +93,14 @@ bool    prevMode = true;
 int     temperature1 = 0;
 int     humidity1   = 0;
 String  currMode  = "A";
+int lightValue = 0;
+int ServoPin = 5;
+int pos = 0;  // Posición inicial
+const int lightThreshold = 1500; 
+bool isVentilationOn = false; 
+unsigned long lastStateChangeTime = 0;  // Último cambio de estado
+const unsigned long STATE_CHANGE_DELAY = 10000;  // 10 segundos mínimo entre cambios de estado
+
 
 char auth[] = BLYNK_AUTH_TOKEN;
 
@@ -191,8 +207,8 @@ void getWeather(){
   else {
     humidity1 = int(h);
     temperature1 = int(t);
-   // Serial.println(temperature1);
-   // Serial.println(humidity1);
+    Serial.println(temperature1);
+    Serial.println(humidity1);
   }  
 }
 
@@ -206,6 +222,7 @@ void sendSensor()
   Blynk.virtualWrite(VPIN_MoistPer, moisturePercentage);
   Blynk.virtualWrite(VPIN_TEMPERATURE, temperature1);
   Blynk.virtualWrite(VPIN_HUMIDITY, humidity1);
+
 }
 
 void controlMoist(){
@@ -235,6 +252,53 @@ void controlMoist(){
     button1.check();
   }
 }
+
+void controlLightAndHumidity() {
+  // Leer sensor de luz
+  lightValue = digitalRead(LightSensorPin);
+  
+  // Controlar LED basado en luz ambiental
+  digitalWrite(LedPin, lightValue ? HIGH : LOW);
+  digitalWrite(LedPin2, lightValue ? HIGH : LOW);
+  
+  // Imprimir estado actual para debugging
+  Serial.print("Luz: "); Serial.println(lightValue);
+  Serial.print("Humedad: "); Serial.println(humidity1);
+  Serial.print("Estado ventilación: "); Serial.println(isVentilationOn ? "ON" : "OFF");
+  
+  unsigned long currentTime = millis();
+  
+  // Verificar si ha pasado suficiente tiempo desde el último cambio de estado
+  if (currentTime - lastStateChangeTime < STATE_CHANGE_DELAY) {
+    return;  // No hacer nada si no ha pasado suficiente tiempo
+  }
+  
+  // Control de histéresis: usar umbrales diferentes para activar y desactivar
+  if (humidity1 <= 69 && !isVentilationOn) {  // Un poco más bajo para activar
+    // Activar ventilación
+    Serial.println(">>> ACTIVANDO VENTILACIÓN - Humedad baja <<<");
+    digitalWrite(FanPin, HIGH);
+    
+    // Mover servo a posición de 90 grados
+    servo.write(0);  // Movimiento directo para evitar bucles
+    
+    isVentilationOn = true;
+    lastStateChangeTime = currentTime;
+    
+  } else if (humidity1 >= 71 && isVentilationOn) {  // Un poco más alto para desactivar
+    // Desactivar ventilación
+    Serial.println(">>> DESACTIVANDO VENTILACIÓN - Humedad adecuada <<<");
+    
+    // Mover servo a posición inicial
+    servo.write(90);  // Movimiento directo
+    
+    digitalWrite(FanPin, LOW);
+    isVentilationOn = false;
+    lastStateChangeTime = currentTime;
+  }
+  
+  // En cualquier otro caso, mantener el estado actual
+}
  
 void setup() {
   // Set up serial monitor
@@ -245,9 +309,15 @@ void setup() {
   pinMode(wifiLed, OUTPUT);
   pinMode(ModeLed, OUTPUT);
   pinMode(BuzzerPin, OUTPUT);
+  pinMode(LightSensorPin, INPUT);
 
   pinMode(RelayButtonPin, INPUT_PULLUP);
   pinMode(ModeSwitchPin, INPUT_PULLUP);
+
+  pinMode(LedPin, OUTPUT);
+  pinMode(FanPin, OUTPUT);
+  servo.attach(ServoPin, SERVO_MIN_US, SERVO_MAX_US);
+  
 
   digitalWrite(wifiLed, LOW);
   digitalWrite(ModeLed, LOW);
@@ -278,6 +348,7 @@ void setup() {
   controlBuzzer(1000); 
   digitalWrite(ModeLed, prevMode);
 }
+
  void loop() {
 
   Blynk.run();
@@ -285,6 +356,7 @@ void setup() {
   
   button2.check();
   controlMoist(); 
+  controlLightAndHumidity();
 }
 
 void button1Handler(AceButton* button, uint8_t eventType, uint8_t buttonState) {
@@ -317,3 +389,4 @@ void button2Handler(AceButton* button, uint8_t eventType, uint8_t buttonState) {
       break;
   }
 }
+
